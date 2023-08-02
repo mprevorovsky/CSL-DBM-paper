@@ -1,0 +1,531 @@
+---
+title: "Histone_ChIP-seq analysis"
+author: "Jarmila Princova"
+date: "6/9/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Download genome
+
+```{bash}
+mkdir ./genome
+wget -N --directory-prefix ./genome/ "ftp://ftp.pombase.org/pombe/genome_sequence_and_features/genome_sequence/Schizosaccharomyces_pombe_chromosome_I.fa.gz"
+wget -N --directory-prefix ./genome/ "ftp://ftp.pombase.org/pombe/genome_sequence_and_features/genome_sequence/Schizosaccharomyces_pombe_chromosome_II.fa.gz"
+wget -N --directory-prefix ./genome/ "ftp://ftp.pombase.org/pombe/genome_sequence_and_features/genome_sequence/Schizosaccharomyces_pombe_chromosome_III.fa.gz"
+wget -N --directory-prefix ./genome/ "ftp://ftp.pombase.org/pombe/genome_sequence_and_features/genome_sequence/Schizosaccharomyces_pombe_mitochondrial_chromosome.fa.gz"
+zcat `ls ./genome/* | grep fa\.gz$` > ./genome/Schizosaccharomyces_pombe.fa
+wget -N --directory-prefix ./genome/ "ftp://ftp.pombase.org/pombe/genome_sequence_and_features/gff3/Schizosaccharomyces_pombe_all_chromosomes.gff3.gz"
+```
+
+## Create table of chromosome sizes
+
+```{bash}
+samtools faidx ./genome/Schizosaccharomyces_pombe.fa
+cut -f1,2 ./genome/Schizosaccharomyces_pombe.fa.fai > ./genome/chromosome_sizes
+```
+
+## Perform quality control of FASTQ files
+
+```{bash}
+mkdir -p "./fastQC"
+fastqc --outdir ./fastQC --threads 4 ./FASTQ/*
+```
+
+## Map files with taking both FASTQ files for biological sample, where applicable
+
+```{bash}
+hisat2-build --quiet -p 4 ./genome/Schizosaccharomyces_pombe.fa ./genome/Schizosaccharomyces_pombe.fa
+CPU=3  # number of available CPUs
+HISAT2_index="./genome/Schizosaccharomyces_pombe.fa"
+fastq_dir="./FASTQ/"
+mkdir -p "./HISAT_2files/"
+bam_dir="./HISAT_2files/"
+
+for i in `ls -p ${fastq_dir} | grep -v / | cut -d'_' -f 1 | uniq`;
+do
+    infile=$(ls -m ${fastq_dir}${i}* | sed 's/ //g')
+    outfile="${bam_dir}${i}.bam"
+    hisat2 -x "${HISAT2_index}" -U "${infile}" -k 15 --threads "${CPU}" --summary-file "${outfile}.log" --no-spliced-alignment \
+	| samtools view -b -F 256 --threads "${CPU}" - | samtools sort -o "${outfile}" -
+    samtools index "${outfile}"
+done
+```
+
+## Normalization using library size
+
+In bash, deeptools, BamCoverage
+
+```{bash}
+CPU=3
+mkdir -p "./CPM_normalized_bigwig/"
+bam_dir="./HISAT_2files/"
+bams=$(ls ${bam_dir}*.bam | cut -d'/' -f 3)
+for i in ${bams};
+do
+    outfile="./CPM_normalized_bigwig/${i}.norm.bw"
+    bamCoverage -b "${bam_dir}${i}" -o "${outfile}" -of bigwig --binSize 1 -p "${CPU}" --normalizeUsing CPM
+done
+```
+
+## Normalization to WT - H3K9ac
+
+```{bash}
+CPU=3
+bw_folder="./CPM_normalized_bigwig/"
+norm_folder="./CPM_normalized_bigwig/WTnorm/"
+mkdir ${norm_folder}
+bigwigCompare -b1 "${bw_folder}B-Ac-1.bam.norm.bw" -b2 "${bw_folder}A-Ac-1.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}B-Ac-1.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}B-Ac-4.bam.norm.bw" -b2 "${bw_folder}A-Ac-4.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}B-Ac-4.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}C-Ac-1.bam.norm.bw" -b2 "${bw_folder}A-Ac-1.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}C-Ac-1.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}C-Ac-4.bam.norm.bw" -b2 "${bw_folder}A-Ac-4.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}C-Ac-4.bam.WTnorm.bw -of bigwig
+```
+
+## Install bigwigtoBedgraph
+
+```{bash}
+cd ~
+wget http://hgdownload.soe.ucsc.edu/admin/exe/linux.x86_64/bigWigToBedGraph
+chmod +x bigWigToBedGraph
+```
+
+##  bigwigtoBedgraph H3K9ac
+
+```{bash}
+bw_folder="/media/sf_Data_Share/CPM_normalized_bigwig/WTnorm/"
+for i in `ls ${bw_folder}`
+do
+~/bigWigToBedGraph ${bw_folder}${i} "${bw_folder}${i}.bedgraph"
+done
+```
+
+## Select regions with altered H3K9ac
+Threshold log2=0.6
+bedgraph to bed
+
+```{r}
+#library(preprocessCore)
+#library(dplyr)
+bedgraph_dir <- "./CPM_normalized_bigwig/WTnorm/"
+for (i in c("B","C")) {
+  rep1 <- read.table(paste0(bedgraph_dir, i, "-Ac-1.bam.WTnorm.bw.bedgraph"), col.names = c("chr", "start", "end", "value"))
+  rep4 <- read.table(paste0(bedgraph_dir, i, "-Ac-4.bam.WTnorm.bw.bedgraph"), col.names = c("chr", "start", "end", "value"))
+  for (j in c("rep1", "rep4")) {
+    jj <- eval(as.symbol(j))
+    bedUP <- data.frame()
+    bedDW <- data.frame()
+    for (k in 1:nrow(jj)) {
+      if (jj[k,4] > 0.6) {
+        addUP <- jj[k,]
+        bedUP <- rbind(bedUP,addUP)
+      }
+      if (jj[k,4] < -0.6) {
+        addDW <- jj[k,]
+        bedDW <- rbind(bedDW,addDW)
+      }
+    }
+   
+    bedUP_sorted <- bedUP[order(bedUP[,1], bedUP[,2] ),]
+    bedDW_sorted <- bedDW[order(bedDW[,1], bedDW[,2] ),]
+    write.table(bedUP_sorted, file= paste0(bedgraph_dir, i, "-Ac-", j, "UP.bed"), sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+    write.table(bedDW_sorted, file= paste0(bedgraph_dir, i, "-Ac-", j, "DW.bed"), sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+  }
+  }
+```
+
+## Functions for gff files
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# https://stat.ethz.ch/pipermail/bioconductor/2008-October/024669.html
+getAttributeField <- function (x, field, attrsep = ";") {
+  s = strsplit(x, split = attrsep, fixed = TRUE)
+  sapply(s, function(atts) {
+    a = strsplit(atts, split = "=", fixed = TRUE)
+    m = match(field, sapply(a, "[", 1))
+    if (!is.na(m)) {
+      rv = a[[m]][2]
+    }
+    else {
+      rv = as.character(NA)
+    }
+    return(rv)
+  })
+}
+
+gffRead <- function(gffFile, nrows = -1) {
+  cat("Reading ", gffFile, ": ", sep="")
+  gff = read.table(gffFile, sep="\t", as.is=TRUE, quote="",
+                   header=FALSE, comment.char="#", nrows = nrows,
+                   colClasses=c("character", "character", "character", "integer",  
+                                "integer",
+                                "character", "character", "character", "character"))
+  colnames(gff) = c("seqname", "source", "feature", "start", "end",
+                    "score", "strand", "frame", "attributes")
+  cat("found", nrow(gff), "rows with classes:",
+      paste(sapply(gff, class), collapse=", "), "\n")
+  stopifnot(!any(is.na(gff$start)), !any(is.na(gff$end)))
+  return(gff)
+}
+```
+
+* in R create intergenic regions (sorted GFF needed as input), filter out 0 and negative lengths, classify as PP (-+), TT (+-), PT (--), TP (++)
+
+```{r}
+genome_dir <- './genome/'
+chrom.sizes <- read.delim(paste0(genome_dir,'./chromosome_sizes'), stringsAsFactors = FALSE, header = FALSE)
+gff <- gffRead(paste0(genome_dir, 'Schizosaccharomyces_pombe_all_chromosomes.gff3.gz'))
+gff <- gff[gff$seqname %in% chrom.sizes[, 1], ]
+gff.mRNA <- gff[gff$feature == 'mRNA', ]
+gff.mRNA$ID <- getAttributeField(gff.mRNA$attributes, "Parent")
+gff.mRNA <- gff.mRNA[order(gff.mRNA$seqname, gff.mRNA$start), ]
+
+gff.intergenic <- data.frame(matrix(nrow = 0, ncol = 10))
+for (i in unique(gff.mRNA$seqname)){
+  gff.temp <- gff.mRNA[gff.mRNA$seqname == i, ]
+  for (j in 1:(nrow(gff.temp) - 1)){
+    ID <- paste(gff.temp[j, 'ID'], gff.temp[j + 1, 'ID'], sep = '_')
+    gff.intergenic <- rbind(gff.intergenic,
+                            c(gff.temp[j, 'seqname'],
+                              'prevorovsky',
+                              'intergenic_region',
+                              gff.temp[j, 'end'] + 1,
+                              gff.temp[j + 1, 'start'] - 1,
+                              '.', '.', '.',
+                              paste0('orientation=', gff.temp[j, 'strand'], gff.temp[j + 1, 'strand'], ';ID=', ID), 
+                              ID, 
+                              use.names = FALSE),
+                            stringsAsFactors = FALSE, deparse.level = 0)
+  }
+  rm(gff.temp, ID)
+}
+colnames(gff.intergenic) <- colnames(gff.mRNA)
+gff.intergenic$start <- as.numeric(gff.intergenic$start)
+gff.intergenic$end <- as.numeric(gff.intergenic$end)
+gff.intergenic <- gff.intergenic[gff.intergenic$end - gff.intergenic$start > 0, ]
+```
+* mark centromeric regions (large, irrelevant for promoter/terminator classification)
+* add rDNA regions (large, irrelevant for promoter/terminator classification)
+* add subtelomeric regions for chrII (problematic for promoter/terminator classification)
+* merge all types of intergenic with genes, save as GFF3, check in IGV
+
+```{r}
+gff.cen <- gff.intergenic[gff.intergenic$end - gff.intergenic$start >= 35000, ]
+gff.cen$feature <- 'intergenic_region_with_centromere'
+gff.cen$attributes <- paste0('ID=', gff.cen$ID)
+gff.intergenic.no_cen <- gff.intergenic[gff.intergenic$end - gff.intergenic$start < 35000, ]
+
+gff.rDNA <- data.frame(seqname = 'III',
+                       source = 'prevorovsky',
+                       feature = 'rDNA_repeats',
+                       start = c(1, max(gff.mRNA[gff.mRNA$seqname == 'III', 'end']) + 1),
+                       end = c(min(gff.mRNA[gff.mRNA$seqname == 'III', 'start']) - 1, chrom.sizes[chrom.sizes[, 1] == 'III', 2]),
+                       score = '.',
+                       strand = '.',
+                       frame = '.',
+                       attributes = c('ID=rDNA_left', 'ID=rDNA_right'),
+                       ID = c('rDNA_left', 'rDNA_right'),
+                       stringsAsFactors = FALSE)
+
+gff.subtel <- data.frame(seqname = 'II',
+                       source = 'prevorovsky',
+                       feature = 'intergenic_region_subtelomeric',
+                       start = c(1, max(gff.mRNA[gff.mRNA$seqname == 'II', 'end']) + 1),
+                       end = c(min(gff.mRNA[gff.mRNA$seqname == 'II', 'start']) - 1, chrom.sizes[chrom.sizes[, 1] == 'II', 2]),
+                       score = '.',
+                       strand = '.',
+                       frame = '.',
+                       attributes = c('ID=subtel_IIL', 'ID=subtel_IIR'),
+                       ID = c('subtel_IIL', 'subtel_IIR'),
+                       stringsAsFactors = FALSE)
+
+gff.genome <- rbind(gff.mRNA, gff.intergenic.no_cen, gff.cen, gff.rDNA, gff.subtel)
+gff.genome <- gff.genome[order(gff.genome$seqname, gff.genome$start), ]
+
+
+write.table(gff.genome[, -10], 
+            file = paste0(genome_dir, 'Schizosaccharomyces_pombe_mRNAs+intergenic_regions.gff3'), 
+            quote = FALSE, 
+            sep = '\t', 
+            row.names = FALSE,
+            col.names = FALSE)
+```
+
+* BED intersect with peaks (bash)
+* report all features that are overlapped by peaks, together with the bp length of the overlap (will be used later to select only the best hit for each peak)
+
+```{bash}
+genome_dir="./genome/"
+bed_dir="./CPM_normalized_bigwig/WTnorm/"
+
+for i in `ls ${bed_dir}*.bed`
+do
+bedtools intersect -a "${genome_dir}Schizosaccharomyces_pombe_mRNAs+intergenic_regions.gff3" -b "${i}" -wo > "${i}.mRNA_intergenic.gff3"
+done
+
+```
+
+* in case a peak overlaps with multiple genomic features (peak is broad and/or multiple mRNAs overlap), select just one best hit (largest overlap, if there is a tie than just pick the first of the best)
+* get summary stats (genomic stats - count type, genome fraction)
+
+```{r}
+bed_dir="./CPM_normalized_bigwig/WTnorm/"
+files <- list.files(path = bed_dir, pattern = "mRNA_intergenic.gff")
+for (j in files) {
+  overlaps <- read.delim(paste0(bed_dir, j), stringsAsFactors = FALSE,
+                       header = FALSE)
+  overlaps.unique <- data.frame(matrix(nrow = 0, ncol = 14))
+  peak_names <- unique(overlaps[, 9])
+  for (i in peak_names){
+    overlaps.temp <- overlaps[overlaps[, 9] == i, ]
+    best.overlap <- which(overlaps.temp[, 14] == max(overlaps.temp[, 14]))
+      if (length(best.overlap > 1)){
+      best.overlap <- best.overlap[1]
+      }
+    overlaps.unique <- rbind(overlaps.unique, overlaps.temp[best.overlap, ])
+    }
+  rm(overlaps.temp, best.overlap)
+  colnames(overlaps.unique)[1:9] <- colnames(gff.genome)[1:9]
+  overlaps.unique$orientation <- getAttributeField(overlaps.unique$attributes, 'orientation')
+  gff.genome$orientation <- getAttributeField(gff.genome$attributes, 'orientation')
+  
+  overlaps.intergenic <- overlaps.unique[overlaps.unique$feature == 'intergenic_region', ]
+
+  genes.intergenic <- data.frame()
+  IDs <- getAttributeField(overlaps.intergenic$attributes, 'ID')
+  for (i in 1:nrow(overlaps.intergenic)) {
+    ID.temp <- IDs[i]
+      if (overlaps.intergenic$orientation[i] == '++') {
+      mRNA <- as.data.frame(sapply(strsplit(ID.temp, "_"), "[", 2))
+      names(mRNA) <- names(genes.intergenic)
+      genes.intergenic <- rbind(genes.intergenic,mRNA)
+      }
+      if (overlaps.intergenic$orientation[i] == '-+') {
+      mRNA <- as.data.frame(strsplit(ID.temp, "_"))
+      names(mRNA) <- names(genes.intergenic)
+      genes.intergenic <- rbind(genes.intergenic,mRNA)
+      }
+      if (overlaps.intergenic$orientation[i] == '--') {
+      mRNA <- as.data.frame(sapply(strsplit(ID.temp, "_"), "[", 1))
+      names(mRNA) <- names(genes.intergenic)
+      genes.intergenic <- rbind(genes.intergenic,mRNA)
+      }
+  }
+  rm(mRNA)
+  
+  genes.mRNA <-as.data.frame(getAttributeField(overlaps.unique[overlaps.unique$feature == 'mRNA', ]$attributes, 'Parent'))
+  names(genes.mRNA) <- names(genes.intergenic)
+  genes.all <- unique(rbind(genes.mRNA, genes.intergenic))
+  
+  genes.all_sorted <- sort(genes.all[,1])
+  genes.mRNA_sorted <- sort(genes.mRNA[,1])
+  genes.intergenic_sorted <- sort(genes.intergenic[,1])
+  
+  write.table(genes.mRNA_sorted, 
+            file = paste0(bed_dir, j, '.genes.mRNA.txt'), 
+            quote = FALSE, 
+            sep = '\t', 
+            row.names = FALSE,
+            col.names = FALSE)
+
+  write.table(genes.intergenic_sorted, 
+            file = paste0(bed_dir, j, '.genes.intergenic.txt'), 
+            quote = FALSE, 
+            sep = '\t', 
+            row.names = FALSE,
+            col.names = FALSE)
+  
+  write.table(genes.all_sorted, 
+            file = paste0(bed_dir, j, '.genes.all.txt'), 
+            quote = FALSE, 
+            sep = '\t', 
+            row.names = FALSE,
+            col.names = FALSE)
+}
+```
+
+## Conserved genes in both replicates (1 and 4)
+
+```{bash}
+bed_dir="./CPM_normalized_bigwig/WTnorm/"
+
+for i in `ls ${bed_dir}*bed.mRNA_intergenic.gff3.genes*`
+do
+sort ${i} > "${i}_sorted"
+done
+
+for i in "mRNA" "intergenic" "all"
+do
+  for j in "B" "C"
+  do
+  comm -12 "${bed_dir}${j}-Ac-rep1DW.bed.mRNA_intergenic.gff3.genes.${i}.txt_sorted" "${bed_dir}${j}-Ac-rep4DW.bed.mRNA_intergenic.gff3.genes.${i}.txt_sorted" > "${bed_dir}${j}-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.${i}.txt" 
+
+  comm -12 "${bed_dir}${j}-Ac-rep1UP.bed.mRNA_intergenic.gff3.genes.${i}.txt_sorted" "${bed_dir}${j}-Ac-rep4UP.bed.mRNA_intergenic.gff3.genes.${i}.txt_sorted" > "${bed_dir}${j}-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.${i}.txt"
+  done
+done
+```
+
+## Normalization to WT - H3K9me2
+
+```{bash}
+CPU=3
+bw_folder="./CPM_normalized_bigwig/"
+norm_folder="./CPM_normalized_bigwig/WTnorm/"
+mkdir ${norm_folder}
+bigwigCompare -b1 "${bw_folder}B-Me-1.bam.norm.bw" -b2 "${bw_folder}A-Me-1.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}B-Me-1.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}B-Me-2.bam.norm.bw" -b2 "${bw_folder}A-Me-2.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}B-Me-2.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}B-Me-4.bam.norm.bw" -b2 "${bw_folder}A-Me-4.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}B-Me-4.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}C-Me-1.bam.norm.bw" -b2 "${bw_folder}A-Me-1.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}C-Me-1.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}C-Me-2.bam.norm.bw" -b2 "${bw_folder}A-Me-2.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}C-Me-2.bam.WTnorm.bw -of bigwig
+bigwigCompare -b1 "${bw_folder}C-Me-4.bam.norm.bw" -b2 "${bw_folder}A-Me-4.bam.norm.bw" --operation log2 --binSize 100 -p "${CPU}" -o ${norm_folder}C-Me-4.bam.WTnorm.bw -of bigwig
+```
+
+## Normalization to WT - RNA-seq (Slava's data)
+
+```{bash}
+#bigwigCompare -b1 "cbf11_YES.mean.bw" -b2 "WT_YES.mean.bw" --operation log2 --binSize 10 -o RNA_seq.WTnorm.bw -of bigwig
+bigwigCompare -b1 "Pcut6MUT.mean.bw" -b2 "WT_YES.mean.bw" --operation log2 --binSize 10 -o Pcut6MUT.WTnorm.bw -of bigwig
+bigwigCompare -b1 "Pcut6MUT.mean.bw" -b2 "WT_DMSO.mean.bw" --operation log2 --binSize 10 -o Pcut6MUT.DMSOnorm.bw -of bigwig
+bigwigCompare -b1 "WT_CER.mean.bw" -b2 "WT_DMSO.mean.bw" --operation log2 --binSize 10 -o CER.DMSOnorm.bw -of bigwig
+```
+
+## Venn diagrams
+
+```{r}
+library(VennDiagram)
+library(tidyverse)
+genelist_dir <- "./CPM_normalized_bigwig/WTnorm/"
+cbf11UP <- read.table(paste0(genelist_dir, "B-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt"))
+Pcut6UP <- read.table(paste0(genelist_dir, "C-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt"))
+x <- list(cbf11UP[,1], Pcut6UP[,1])
+venn.plot <- venn.diagram(
+  x,
+  category.names = c("cbf11KO UP" , "Pcut6MUT UP "),
+  filename = paste0(genelist_dir, 'venn_diagramUP.png'),
+  output=TRUE, 
+  imagetype="png" ,
+         height = 480 , 
+         width = 520 , 
+         resolution = 300,
+         compression = "lzw",
+         lwd = 1,
+         col=c("#440154ff", '#21908dff'),
+         fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3)),
+         cex = 0.5,
+         fontfamily = "sans",
+         cat.cex = 0.5,
+         cat.default.pos = "outer",
+         cat.pos = c(-27, 3),
+         cat.dist = c(0.055, 0.07),
+         cat.fontfamily = "sans",
+         cat.col = c("#440154ff", '#21908dff'),
+)
+dd <- calculate.overlap(x)
+pUP <- phyper(length(dd$a3)-1, length(dd$a1), 5117-length(dd$a1), length(dd$a2), lower.tail = FALSE)
+print(pUP)
+
+cbf11DW <- read.table(paste0(genelist_dir, "B-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt"))
+Pcut6DW <- read.table(paste0(genelist_dir, "C-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt"))
+x <- list(cbf11DW[,1], Pcut6DW[,1])
+venn.plot <- venn.diagram(
+  x,
+  category.names = c("cbf11KO DW" , "Pcut6MUT DW "),
+  filename = paste0(genelist_dir, 'venn_diagramDW.png'),
+  output=TRUE, 
+  imagetype="png" ,
+         height = 480 , 
+         width = 480 , 
+         resolution = 300,
+         compression = "lzw",
+         lwd = 1,
+         col=c("#440154ff", '#21908dff'),
+         fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3)),
+         cex = 0.5,
+         fontfamily = "sans",
+         cat.cex = 0.5,
+         cat.default.pos = "outer",
+         cat.pos = c(-27, 2),
+         cat.dist = c(0.055, 0.10),
+         cat.fontfamily = "sans",
+         cat.col = c("#440154ff", '#21908dff'),
+)
+dd <- calculate.overlap(x)
+pDW <- phyper(length(dd$a3)-1, length(dd$a1), 5117-length(dd$a1), length(dd$a2), lower.tail = FALSE)
+print(pDW)
+```
+## Venn diagrams - correlation with expression (microarrays)
+```{r}
+library(VennDiagram)
+library(tidyverse)
+genelist_dir <- "./CPM_normalized_bigwig/WTnorm/"
+cbf11UP <- read.table(paste0(genelist_dir, "B-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt"))
+geneUP <- read.table(paste0(genelist_dir, "cbf11_microarray_UP.txt"))
+x <- list(cbf11UP[,1], geneUP[,1])
+venn.plot <- venn.diagram(
+  x,
+  category.names = c("H3K9ac UP" , "expression UP "),
+  filename = paste0(genelist_dir, 'venn_diagramUP_microarray.png'),
+  output=TRUE, 
+  imagetype="png" ,
+         height = 480 , 
+         width = 480 , 
+         resolution = 300,
+         compression = "lzw",
+         lwd = 1,
+         col=c("#440154ff", '#21908dff'),
+         fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3)),
+         cex = 0.5,
+         fontfamily = "sans",
+         cat.cex = 0.5,
+         cat.default.pos = "outer",
+         cat.pos = c(-27, 3),
+         cat.dist = c(0.055, 0.07),
+         cat.fontfamily = "sans",
+         cat.col = c("#440154ff", '#21908dff'),
+)
+dd <- calculate.overlap(x)
+pUP <- phyper(length(dd$a3)-1, length(dd$a1), 5117-length(dd$a1), length(dd$a2), lower.tail = FALSE)
+print(pUP)
+
+cbf11DW <- read.table(paste0(genelist_dir, "B-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt"))
+geneDW <- read.table(paste0(genelist_dir, "cbf11_microarray_DW.txt"))
+x <- list(cbf11DW[,1], geneDW[,1])
+venn.plot <- venn.diagram(
+  x,
+  category.names = c("H3K9ac DW" , "expression DW "),
+  filename = paste0(genelist_dir, 'venn_diagramDW_microarray.png'),
+  output=TRUE, 
+  imagetype="png" ,
+         height = 480 , 
+         width = 480 , 
+         resolution = 300,
+         compression = "lzw",
+         lwd = 1,
+         col=c("#440154ff", '#21908dff'),
+         fill = c(alpha("#440154ff",0.3), alpha('#21908dff',0.3)),
+         cex = 0.5,
+         fontfamily = "sans",
+         cat.cex = 0.5,
+         cat.default.pos = "outer",
+         cat.pos = c(-27, 5),
+         cat.dist = c(0.055, -0.25),
+         cat.fontfamily = "sans",
+         cat.col = c("#440154ff", '#21908dff'),
+)
+dd <- calculate.overlap(x)
+pDW <- phyper(length(dd$a3)-1, length(dd$a1), 5117-length(dd$a1), length(dd$a2), lower.tail = FALSE)
+print(pDW)
+```
+## Common genes for cbf11KO and Pcut6MUT H3K9ac
+
+```{bash}
+bed_dir="./CPM_normalized_bigwig/WTnorm/"
+
+comm -12 "${bed_dir}B-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt" "${bed_dir}C-Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt" > "${bed_dir}Ac.WTnormDW.bed.mRNA_intergenic.gff3.genes.all.txt" 
+
+comm -12 "${bed_dir}B-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt" "${bed_dir}C-Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt" > "${bed_dir}Ac.WTnormUP.bed.mRNA_intergenic.gff3.genes.all.txt" 
+```
