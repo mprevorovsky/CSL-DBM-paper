@@ -1,0 +1,6 @@
+SPAC3A11.07	SPAC3A11.07	NADH dehydrogenase (predicted)
+lcf1	SPBC18H10.02	long-chain-fatty-acid-CoA ligase Lcf1
+cyt1	SPBC29A3.18	cytochrome c1 Cyt1 (predicted)
+car2	SPBC21C3.08c	ornithine transaminase Car2
+SPBPB7E8.01	SPBPB7E8.01	sequence orphan
+
