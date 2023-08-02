@@ -1,0 +1,33 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("VennDiagram")
+
+image_dir <- './images/'
+peak_dir <- './peaks/'
+
+dir.create(image_dir, recursive = TRUE)
+```
+
+
+## Figure S3 ChIP-seq vs ChIP-nexus
+
+```{bash, eval=TRUE}
+deg_dir="./peaks/"
+
+wc -l "${deg_dir}"*
+
+bedtools intersect -a "${deg_dir}"Cbf11.reproducible_untagged+Fkh2-filtered.peaks.bed -b "${deg_dir}"Cbf11_peaks.final.bed | wc -l
+bedtools intersect -a "${deg_dir}"Cbf12.reproducible_untagged+Fkh2-filtered.peaks.bed -b "${deg_dir}"Cbf12_peaks.final.bed | wc -l
+```
+
+```{bash, eval=TRUE}
+deg_dir="./peaks/"
+
+cat "${deg_dir}"Cbf11.reproducible_untagged+Fkh2-filtered.peaks.bed | awk ' $5 >= 15 ' > "${deg_dir}"Cbf11.reproducible_untagged+Fkh2-filtered.peaks_S15.bed
+cat "${deg_dir}"Cbf12.reproducible_untagged+Fkh2-filtered.peaks.bed | awk ' $5 >= 15 ' > "${deg_dir}"Cbf12.reproducible_untagged+Fkh2-filtered.peaks_S15.bed
+
+wc -l "${deg_dir}"*
+
+bedtools intersect -a "${deg_dir}"Cbf11.reproducible_untagged+Fkh2-filtered.peaks_S15.bed -b "${deg_dir}"Cbf11_peaks.final.bed | wc -l
+bedtools intersect -a "${deg_dir}"Cbf12.reproducible_untagged+Fkh2-filtered.peaks_S15.bed -b "${deg_dir}"Cbf12_peaks.final.bed | wc -l
+```

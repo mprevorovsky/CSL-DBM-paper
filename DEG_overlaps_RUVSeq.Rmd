@@ -1,0 +1,60 @@
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library("VennDiagram")
+
+image_dir <- './images/'
+deg_dir <- './DEGs/'
+
+dir.create(image_dir, recursive = TRUE)
+```
+
+```{r, eval=TRUE}
+rna_seq_11 <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11-YES_vs_WT-YES.RUVSeq-norm.SIG.csv'), row.names = 1)
+rna_seq_11 <- rna_seq_11[grep('SPNCRNA|TRNA|RRNA|SNORNA|SNRNA', rownames(rna_seq_11), invert = TRUE), ]
+rna_seq_11.up <- rownames(rna_seq_11[rna_seq_11$log2FoldChange >= 1, ])
+rna_seq_11.down <- rownames(rna_seq_11[rna_seq_11$log2FoldChange <= -1, ])
+rm(rna_seq_11)
+
+rna_seq_11dbm <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11DBM-YES_vs_WT-YES.RUVSeq-norm.SIG.csv'), row.names = 1)
+rna_seq_11dbm <- rna_seq_11dbm[grep('SPNCRNA|TRNA|RRNA|SNORNA|SNRNA', rownames(rna_seq_11dbm), invert = TRUE), ]
+rna_seq_11dbm.up <- rownames(rna_seq_11dbm[rna_seq_11dbm$log2FoldChange >= 1, ])
+rna_seq_11dbm.down <- rownames(rna_seq_11dbm[rna_seq_11dbm$log2FoldChange <= -1, ])
+rm(rna_seq_11dbm)
+
+arrays_11.up <- read.delim(paste0(deg_dir, 'cbf11 2xUP (3of4) in YES log.txt'), stringsAsFactors = FALSE, header = FALSE)[, 2]
+arrays_11.down <- read.delim(paste0(deg_dir, 'cbf11 2xDOWN (3of4) in YES log.txt'), stringsAsFactors = FALSE, header = FALSE)[, 2]
+```
+
+
+## Figure 3B RNA-seq
+
+```{r, eval=TRUE}
+venn.diagram(x = list(rna_seq_11.down, rna_seq_11dbm.down),
+             category.names = c('cbf11KO RNA-seq', 'cbf11DBM RNA-seq'),
+             main = '2x downregulated coding DEGs',
+             filename = paste0(image_dir, 'overlaps_RNA-seq_DOWN.RUVSeq-norm.tif'), 
+             disable.logging = TRUE)
+
+venn.diagram(x = list(rna_seq_11.up, rna_seq_11dbm.up),
+             category.names = c('cbf11KO RNA-seq', 'cbf11DBM RNA-seq'),
+             main = '2x upregulated coding DEGs',
+             filename = paste0(image_dir, 'overlaps_RNA-seq_UP.RUVSeq-norm.tif'), 
+             disable.logging = TRUE)
+```
+
+
+## Figure S5
+
+```{r, eval=TRUE}
+venn.diagram(x = list(rna_seq_11.down, rna_seq_11dbm.down, arrays_11.down),
+             category.names = c('cbf11KO RNA-seq', 'cbf11DBM RNA-seq', 'cbf11KO arrays'),
+             main = '2x downregulated coding DEGs',
+             filename = paste0(image_dir, 'overlaps_DOWN.RUVSeq-norm.tif'), 
+             disable.logging = TRUE)
+
+venn.diagram(x = list(rna_seq_11.up, rna_seq_11dbm.up, arrays_11.up),
+             category.names = c('cbf11KO RNA-seq', 'cbf11DBM RNA-seq', 'cbf11KO arrays'),
+             main = '2x upregulated coding DEGs',
+             filename = paste0(image_dir, 'overlaps_UP.RUVSeq-norm.tif'), 
+             disable.logging = TRUE)
+```

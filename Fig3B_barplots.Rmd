@@ -1,0 +1,34 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+deg_dir <- './DEGs/'
+```
+
+```{r, eval=TRUE}
+GOI <- c('cut6', 'lcf1', 'lcf2', 'ole1', 'fsh2', 'vht1', 'bio2', 'fas2', 'ptl1')
+
+rna_seq_11 <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11-YES_vs_WT-YES.RUVSeq-norm.csv'), row.names = 1)
+rna_seq_11dbm <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11DBM-YES_vs_WT-YES.RUVSeq-norm.csv'), row.names = 1)
+
+rna_seq_11 <- rna_seq_11[rna_seq_11$gene_name %in% GOI, ]
+rna_seq_11dbm <- rna_seq_11dbm[rna_seq_11dbm$gene_name %in% GOI, ]
+
+fig3b <- data.frame(gene_name = rna_seq_11$gene_name,
+               cbf11 = 2^rna_seq_11$log2FoldChange,
+               cbf11dbm = 2^rna_seq_11dbm$log2FoldChange)
+
+# relative gene expression as compared to WT (linearized DESeq2 output)
+fig3b
+
+barplot(as.matrix(fig3b[, 2:3]),
+        beside = TRUE,
+        names.arg = c('cbf11KO', 'cbf11DBM'),
+        legend.text = fig3b$gene_name,
+        args.legend = list(x = 'top', ncol = 5),
+        ylim = c(0, 1))
+```

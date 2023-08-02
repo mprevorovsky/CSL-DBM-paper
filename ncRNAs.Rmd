@@ -1,0 +1,173 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(rtracklayer)
+
+deg_dir <- './DEGs/'
+image_dir <- './images/'
+genome_dir <- './genome/'
+
+dir.create(image_dir, recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r, eval=TRUE}
+rna_seq_11 <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11-YES_vs_WT-YES.RUVSeq-norm.csv'), row.names = 1)
+rna_seq_11dbm <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11DBM-YES_vs_WT-YES.RUVSeq-norm.csv'), row.names = 1)
+rna_seq_cut6 <- read.csv(paste0(deg_dir, 'DESeq2results_Pcut6MUT-YES_vs_WT-YES.RUVSeq-norm.csv'), row.names = 1)
+
+rna_seq_11.sig <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11-YES_vs_WT-YES.RUVSeq-norm.SIG.csv'), row.names = 1)
+rna_seq_11dbm.sig <- read.csv(paste0(deg_dir, 'DESeq2results_cbf11DBM-YES_vs_WT-YES.RUVSeq-norm.SIG.csv'), row.names = 1)
+rna_seq_cut6.sig <- read.csv(paste0(deg_dir, 'DESeq2results_Pcut6MUT-YES_vs_WT-YES.RUVSeq-norm.SIG.csv'), row.names = 1)
+
+genes_ncRNAs <- rownames(rna_seq_11[grep('SPNCRNA', rownames(rna_seq_11)), ])
+```
+
+```{r}
+pdf(paste0(image_dir, 'ncRNA_boxplot.pdf'))
+boxplot(list(rna_seq_11[!rownames(rna_seq_11) %in% genes_ncRNAs, 'log2FoldChange'], 
+             rna_seq_11[rownames(rna_seq_11) %in% genes_ncRNAs, 'log2FoldChange'],
+             rna_seq_11dbm[!rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'log2FoldChange'], 
+             rna_seq_11dbm[rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'log2FoldChange'], 
+             rna_seq_cut6[!rownames(rna_seq_cut6) %in% genes_ncRNAs, 'log2FoldChange'], 
+             rna_seq_cut6[rownames(rna_seq_cut6) %in% genes_ncRNAs, 'log2FoldChange']),
+        names = c('11\nother', '11\nlncRNA', '11DBM\nother', '11DBM\nlncRNA', 'Pcut6MUT\nother', 'Pcut6MUT\nlncRNA'),
+        las = 2)
+abline(h = 0)
+dev.off()
+
+pdf(paste0(image_dir, 'ncRNA_expression.pdf'))
+# cbf11
+par(mfcol = c(1, 2))
+options(scipen=5)
+plot(rna_seq_11[!rownames(rna_seq_11) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_11[!rownames(rna_seq_11) %in% genes_ncRNAs, 'baseMean'],
+     log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_11$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_11$baseMean, na.rm = TRUE)),
+     main = 'cbf11KO: other genes',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+points(rna_seq_11[!rownames(rna_seq_11) %in% genes_ncRNAs & rownames(rna_seq_11) %in% rownames(rna_seq_11.sig), 'log2FoldChange'],
+       rna_seq_11[!rownames(rna_seq_11) %in% genes_ncRNAs & rownames(rna_seq_11) %in% rownames(rna_seq_11.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 1, 0.2),)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+plot(rna_seq_11[rownames(rna_seq_11) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_11[rownames(rna_seq_11) %in% genes_ncRNAs, 'baseMean'],
+      log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_11$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_11$baseMean, na.rm = TRUE)),
+     main = 'cbf11KO: lncRNAs',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+points(rna_seq_11[rownames(rna_seq_11) %in% genes_ncRNAs & rownames(rna_seq_11) %in% rownames(rna_seq_11.sig), 'log2FoldChange'],
+       rna_seq_11[rownames(rna_seq_11) %in% genes_ncRNAs & rownames(rna_seq_11) %in% rownames(rna_seq_11.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 0, 0.2),)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+
+# cbf11DBM
+par(mfcol = c(1, 2))
+plot(rna_seq_11dbm[!rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_11dbm[!rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'baseMean'],
+     log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_11dbm$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_11dbm$baseMean, na.rm = TRUE)),
+     main = 'cbf11DBM: other genes',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+points(rna_seq_11dbm[!rownames(rna_seq_11dbm) %in% genes_ncRNAs & rownames(rna_seq_11dbm) %in% rownames(rna_seq_11dbm.sig), 'log2FoldChange'],
+       rna_seq_11dbm[!rownames(rna_seq_11dbm) %in% genes_ncRNAs & rownames(rna_seq_11dbm) %in% rownames(rna_seq_11dbm.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 1, 0.2),)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+plot(rna_seq_11dbm[rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_11dbm[rownames(rna_seq_11dbm) %in% genes_ncRNAs, 'baseMean'],
+      log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_11dbm$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_11dbm$baseMean, na.rm = TRUE)),
+     main = 'cbf11DBM: lncRNAs',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+points(rna_seq_11dbm[rownames(rna_seq_11dbm) %in% genes_ncRNAs & rownames(rna_seq_11dbm) %in% rownames(rna_seq_11dbm.sig), 'log2FoldChange'],
+       rna_seq_11dbm[rownames(rna_seq_11dbm) %in% genes_ncRNAs & rownames(rna_seq_11dbm) %in% rownames(rna_seq_11dbm.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 0, 0.2),)
+
+# Pcut6MUT
+par(mfcol = c(1, 2))
+plot(rna_seq_cut6[!rownames(rna_seq_cut6) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_cut6[!rownames(rna_seq_cut6) %in% genes_ncRNAs, 'baseMean'],
+     log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_cut6$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_cut6$baseMean, na.rm = TRUE)),
+     main = 'Pcut6MUT: other genes',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+points(rna_seq_cut6[!rownames(rna_seq_cut6) %in% genes_ncRNAs & rownames(rna_seq_cut6) %in% rownames(rna_seq_cut6.sig), 'log2FoldChange'],
+       rna_seq_cut6[!rownames(rna_seq_cut6) %in% genes_ncRNAs & rownames(rna_seq_cut6) %in% rownames(rna_seq_cut6.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 1, 0.2),)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+plot(rna_seq_cut6[rownames(rna_seq_cut6) %in% genes_ncRNAs, 'log2FoldChange'],
+     rna_seq_cut6[rownames(rna_seq_cut6) %in% genes_ncRNAs, 'baseMean'],
+      log = 'y', pch = 20, col = rgb(0, 0, 0, 0.2),
+     xlim = range(rna_seq_cut6$log2FoldChange, na.rm = TRUE), 
+     ylim = c(0.01, max(rna_seq_cut6$baseMean, na.rm = TRUE)),
+     main = 'Pcut6MUT: lncRNAs',
+     xlab = 'log2(fold change vs WT)',
+     ylab = 'mean normalized expression',
+     yaxt = 'n')
+axis(side = 2, at = c(1, 10, 100, 1000, 10000), las = 2)
+abline(h = c(1, 10, 100, 1000, 10000), v = c(-1, 0, 1), col = 'darkgrey')
+points(rna_seq_cut6[rownames(rna_seq_cut6) %in% genes_ncRNAs & rownames(rna_seq_cut6) %in% rownames(rna_seq_cut6.sig), 'log2FoldChange'],
+       rna_seq_cut6[rownames(rna_seq_cut6) %in% genes_ncRNAs & rownames(rna_seq_cut6) %in% rownames(rna_seq_cut6.sig), 'baseMean'],
+       pch = 20, col = rgb(0, 1, 0, 0.2),)
+dev.off()
+```
+
+
+## Test for altered H3K9ac levels at ncRNA DEGs
+
+```{r, eval=TRUE}
+genes_ncRNAs.sig.up <- genes_ncRNAs[genes_ncRNAs %in% rownames(rna_seq_11.sig) & rna_seq_11[genes_ncRNAs, 'log2FoldChange'] > 0]
+genes_ncRNAs.sig.dw <- genes_ncRNAs[genes_ncRNAs %in% rownames(rna_seq_11.sig) & rna_seq_11[genes_ncRNAs, 'log2FoldChange'] < 0]
+
+genes_ncRNAs.nonsig <- genes_ncRNAs[!genes_ncRNAs %in% rownames(rna_seq_11.sig)]
+
+gff <- import.gff3(paste0(genome_dir, 'Schizosaccharomyces_pombe_all_chromosomes.gff3'))
+gff <- gff[grep('SPNCRNA', gff$ID), ] 
+gff <- gff[gff$type == 'gene', ]
+gff$score <- 0
+export.bed(sort(gff[gff$ID %in% genes_ncRNAs.sig.up, ]), paste0(genome_dir, 'nc_RNAs.sig.up.bed'))
+export.bed(sort(gff[gff$ID %in% genes_ncRNAs.sig.dw, ]), paste0(genome_dir, 'nc_RNAs.sig.dw.bed'))
+export.bed(sort(gff[gff$ID %in% genes_ncRNAs.nonsig, ]), paste0(genome_dir, 'nc_RNAs.non-sig.bed'))
+```
+
+```{bash, eval=TRUE}
+image_dir="./images/"
+genome_dir="./genome/"
+coverage_dir="./coverage/"
+
+computeMatrix scale-regions -S "${coverage_dir}B-A_Ac-1.bw" "${coverage_dir}B-A_Ac-4.bw" -R "${genome_dir}nc_RNAs.sig.up.bed" "${genome_dir}nc_RNAs.sig.dw.bed" "${genome_dir}nc_RNAs.non-sig.bed" -o "${coverage_dir}ncRNA_coverage" -m 700 -p "max" -b 500 -a 500
+
+plotHeatmap --matrixFile "${coverage_dir}ncRNA_coverage" -o "${image_dir}ncRNA_coverage.jpg"
+plotProfile --matrixFile "${coverage_dir}ncRNA_coverage" -o "${image_dir}ncRNA_coverage.svg" --colors "#E4B90A" darkblue darkgrey --samplesLabel "cbf11/WT run1" "cbf11/WT run2" --regionsLabel "lncRNAs UP in cbf11 (n=1568)" "lncRNAs DOWN in cbf11 (n=656)" "other lncRNAs (n=5124)" --yAxisLabel "normalized H3K9ac coverage" --numPlotsPerRow 1
+
+#computeMatrix scale-regions -S "${coverage_dir}B-A_Ac-1.bw" "${coverage_dir}B-A_Ac-4.bw" "${coverage_dir}C-A_Ac-1.bw" "${coverage_dir}C-A_Ac-4.bw" -R "${genome_dir}nc_RNAs.sig.up.bed" "${genome_dir}nc_RNAs.sig.dw.bed" "${genome_dir}nc_RNAs.non-sig.bed" -o "${coverage_dir}ncRNA_coverage" -m 700 -p "max" -b 500 -a 500
+
+#plotHeatmap --matrixFile "${coverage_dir}ncRNA_coverage" -o "${image_dir}ncRNA_coverage.jpg"
+#plotProfile --matrixFile "${coverage_dir}ncRNA_coverage" -o "${image_dir}ncRNA_coverage.svg" --colors "#E4B90A" darkblue darkgrey --samplesLabel "cbf11/WT run1" "cbf11/WT run2" "Pcut6MUT/WT run1" "Pcut6MUT/WT run2" --regionsLabel "lncRNAs UP in cbf11 (n=1568)" "lncRNAs DOWN in cbf11 (n=656)" "other lncRNAs (n=5124)" --yAxisLabel "normalized H3K9ac coverage" --numPlotsPerRow 1
+```
+
